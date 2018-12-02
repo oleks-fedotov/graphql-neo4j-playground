@@ -1,0 +1,114 @@
+scalar Date
+
+type Person {
+  id: ID!
+  name: String
+  studiedAt: [StudyFact]
+  birthPlace: [BirthPlaceFact]
+  birthday: [BirthdayFact]
+  currentLocation: CurrentLocationFact
+  friends: [FriendFact]
+  fromTheSameUniversity: [Person]
+    @cypher(
+      statement: "MATCH (this)-[:HAS_FACT]->(:University)<-[:HAS_FACT]-(p2: Person) RETURN p2"
+    )
+  fromTheSameCity: [Person]
+    @cypher(
+      statement: "MATCH (this)-[:HAS_FACT]->(:Place)<-[:HAS_FACT]-(p2: Person) RETURN p2"
+    )
+  personsStudyInUniversitiesFromCurrentLocation: [Person]
+    @cypher(
+      statement: """
+        MATCH (this)
+          -[:HAS_FACT {title: 'located in'}]->
+            (:Place)
+              <-[:LOCATED_IN]-(:University)
+                <-[:HAS_FACT { title: 'studied at'}]-(p:Person) RETURN p
+      """
+    )
+  friendsOfFriendsWhoStudiedTogether: [Person]
+    @cypher(
+      statement: """
+        MATCH (this)
+          -[:HAS_FACT {title: 'friend of'}]->
+          (:Person)-[f1Study:HAS_FACT {title: 'studied at'}]->
+          (:University)
+            <-[f2Study:HAS_FACT {title: 'studied at'}]-(:Person)
+              <-[:HAS_FACT {title: 'friend of'}]-(target:Person)
+        WHERE f1Study.started < f2Study.ended OR f2Study.started > f1Study.ended
+        RETURN target
+      """
+    )
+  allFriendsOfFriendsWhoStudiedTogether: [Person]
+    @cypher(
+      statement: """
+      MATCH (this)
+        -[:HAS_FACT {title: 'friend of'}]->
+        (:Person)-[f1Study:HAS_FACT {title: 'studied at'}]->
+        (:University)
+          <-[f2Study:HAS_FACT {title: 'studied at'}]-(student:Person)
+            <-[:HAS_FACT*1..2 {title: 'friend of'}]-(target:Person)
+      WHERE (f1Study.started < f2Study.ended OR f2Study.started > f1Study.ended) AND student <> target
+      RETURN DISTINCT target
+      """
+    )
+}
+
+type StudyFact @relation(name: "HAS_FACT") {
+  from: Person
+  to: University
+  title: String!
+  started: Date
+  ended: Date
+}
+
+type BirthdayFact @relation(name: "HAS_FACT") {
+  from: Person
+  to: BirthDate
+  title: String!
+}
+
+type BirthPlaceFact @relation(name: "HAS_FACT") {
+  from: Person
+  to: Place
+  title: String!
+}
+
+type CurrentLocationFact @relation(name: "HAS_FACT") {
+  from: Person
+  to: Place
+  title: String!
+}
+
+type FriendFact @relation(name: "HAS_FACT") {
+  from: Person
+  to: Person
+  title: String!
+}
+
+type University {
+  id: ID!
+  title: String
+  location: Place @relation(name: "LOCATED_IN", direction: "OUT")
+  persons: [Person] @relation(name: "HAS_FACT", direction: "IN")
+}
+
+type Place {
+  id: ID!
+  city: String,
+  persons: [Person] @relation(name: "HAS_FACT", direction: "IN")
+}
+
+type BirthDate {
+  id: ID!
+  value: String
+  persons: [Person] @relation(name: "HAS_FACT", direction: "IN")
+  universities: [University] @relation(name: "LOCATED_IN", direction: "OUT")
+}
+
+type Query {
+  personsByUniversity(subtitle: String): [Person]
+    @cypher(statement: "MATCH (p: Person)-[:HAS_FACT]->(u: University) WHERE u.title CONTAINS $subtitle RETURN p")
+  personsFromTheSameUniversity(personId: ID): [Person]
+    @cypher(statement: "MATCH (p1: Person)-[:HAS_FACT]->(:University)<-[:HAS_FACT]-(p2: Person) WHERE p1.id=$personId RETURN p2")
+}
